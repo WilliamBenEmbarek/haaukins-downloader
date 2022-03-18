@@ -68,7 +68,7 @@ func init() {
 		Name:  "session",
 		Value: haaukinsSessionCookie,
 	}
-	urlObj, _ := url.Parse(haaukinsURL)
+	urlObj, _ := url.Parse("https://"+haaukinsURL);
 	cookieJar.SetCookies(urlObj, []*http.Cookie{cookie})
 	haaukinsDialer = websocket.Dialer{
 		Jar: cookieJar,
@@ -109,7 +109,7 @@ func handleChallenge(chal Challenge, rootPath string) {
 }
 
 func recieveChallenges(conn *websocket.Conn) {
-	defer close(done)
+	//defer close(done)
 	_, challengesJSON, _ := conn.ReadMessage()
 	fmt.Printf("%s\n", challengesJSON)
 	/*
