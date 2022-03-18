@@ -68,7 +68,7 @@ func init() {
 		Name:  "session",
 		Value: haaukinsSessionCookie,
 	}
-	urlObj, _ := url.Parse(haaukinsURL)
+	urlObj, _ := url.Parse("https://"+haaukinsURL);
 	cookieJar.SetCookies(urlObj, []*http.Cookie{cookie})
 	haaukinsDialer = websocket.Dialer{
 		Jar: cookieJar,
