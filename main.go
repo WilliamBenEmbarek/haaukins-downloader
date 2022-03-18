@@ -109,7 +109,7 @@ func handleChallenge(chal Challenge, rootPath string) {
 }
 
 func recieveChallenges(conn *websocket.Conn) {
-	//defer close(done)
+	defer close(done)
 	_, challengesJSON, _ := conn.ReadMessage()
 	fmt.Printf("%s\n", challengesJSON)
 	/*
