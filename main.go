@@ -4,16 +4,19 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"net/http/cookiejar"
 	"net/url"
 	"os"
 	"os/signal"
+	"path"
 	"path/filepath"
 	"time"
 
 	websocket "github.com/gorilla/websocket"
+	"mvdan.cc/xurls/v2"
 )
 
 type Challenges struct {
@@ -68,7 +71,7 @@ func init() {
 		Name:  "session",
 		Value: haaukinsSessionCookie,
 	}
-	urlObj, _ := url.Parse("https://"+haaukinsURL);
+	urlObj, _ := url.Parse("https://" + haaukinsURL)
 	cookieJar.SetCookies(urlObj, []*http.Cookie{cookie})
 	haaukinsDialer = websocket.Dialer{
 		Jar: cookieJar,
@@ -92,9 +95,44 @@ func main() {
 	path := filepath.Join(".", filePath)
 	os.MkdirAll(path, os.ModePerm)
 
-	//for i := range challenges.Values {
-	//	handleChallenge(challenges.Values[i].Challenge, path)
-	//}
+	for i := range challenges.Values {
+		handleChallenge(challenges.Values[i], path)
+		downloadFileIfExists(challenges.Values[i], path)
+	}
+}
+
+func downloadFileIfExists(chal Challenge, rootPath string) {
+	fileUrl := xurls.Strict().FindString(chal.Challenge.TeamDescription)
+	client := &http.Client{}
+
+	fsPath := filepath.Join(rootPath, chal.Challenge.Tag)
+	os.MkdirAll(fsPath, os.ModePerm)
+
+	if fileUrl != "" {
+		req, err := http.NewRequest("GET", fileUrl, nil)
+		if err != nil {
+			panic(err)
+		}
+		resp, err := client.Do(req)
+		if err != nil {
+			panic(err)
+		}
+		defer resp.Body.Close()
+		filePath := path.Base(req.URL.Path)
+		if filePath == "download" {
+			filePath = chal.Challenge.Tag
+		}
+		log.Println("Downloading file:", filePath)
+		file, err := os.Create(filepath.Join(fsPath, filePath))
+		if err != nil {
+			panic(err)
+		}
+		defer file.Close()
+		_, err = io.Copy(file, resp.Body)
+		if err != nil {
+			panic(err)
+		}
+	}
 }
 
 func handleChallenge(chal Challenge, rootPath string) {
@@ -105,19 +143,18 @@ func handleChallenge(chal Challenge, rootPath string) {
 		panic(err)
 	}
 	defer file.Close()
-	json.NewEncoder(file).Encode(chal)
+	enc := json.NewEncoder(file)
+	enc.SetIndent("", "    ")
+	enc.Encode(chal)
 }
 
 func recieveChallenges(conn *websocket.Conn) {
 	defer close(done)
-	_, challengesJSON, _ := conn.ReadMessage()
-	fmt.Printf("%s\n", challengesJSON)
-	/*
-		if err != nil {
-			fmt.Println(err)
-			return
-		}
-		json.Unmarshal([]byte(challengesJSON), &challenges)
-		fmt.Printf("%+v\n", challenges)
-	*/
+	_, challengesJSON, err := conn.ReadMessage()
+
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+	json.Unmarshal([]byte(challengesJSON), &challenges)
 }
