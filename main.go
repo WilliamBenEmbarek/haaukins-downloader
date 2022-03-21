@@ -13,6 +13,8 @@ import (
 	"os/signal"
 	"path"
 	"path/filepath"
+	"strings"
+	"sync"
 	"time"
 
 	websocket "github.com/gorilla/websocket"
@@ -95,10 +97,18 @@ func main() {
 	path := filepath.Join(".", filePath)
 	os.MkdirAll(path, os.ModePerm)
 
+	var wg sync.WaitGroup
+	wg.Add(len(challenges.Values))
+	log.Println("Downloading files...")
 	for i := range challenges.Values {
-		handleChallenge(challenges.Values[i], path)
-		downloadFileIfExists(challenges.Values[i], path)
+		go func(chal Challenge) {
+			defer wg.Done()
+			handleChallenge(chal, path)
+			downloadFileIfExists(chal, path)
+		}(challenges.Values[i])
 	}
+	wg.Wait()
+	log.Println("Done! Files saved to:", path)
 }
 
 func downloadFileIfExists(chal Challenge, rootPath string) {
@@ -108,7 +118,8 @@ func downloadFileIfExists(chal Challenge, rootPath string) {
 	fsPath := filepath.Join(rootPath, chal.Challenge.Tag)
 	os.MkdirAll(fsPath, os.ModePerm)
 
-	if fileUrl != "" {
+	// Check for false positives
+	if fileUrl != "" && !strings.Contains(fileUrl, "hkn") {
 		req, err := http.NewRequest("GET", fileUrl, nil)
 		if err != nil {
 			panic(err)
