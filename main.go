@@ -1,171 +1,146 @@
-package main
+# package main
 
-import (
-	"encoding/json"
-	"flag"
-	"fmt"
-	"io"
-	"log"
-	"net/http"
-	"net/http/cookiejar"
-	"net/url"
-	"os"
-	"os/signal"
-	"path"
-	"path/filepath"
-	"strings"
-	"sync"
-	"time"
+from dataclasses import dataclass
+import asyncio, argparse, json, io, logging, os, os.path, string, time
+import websockets  # pip3 install websockets
 
-	websocket "github.com/gorilla/websocket"
-	"mvdan.cc/xurls/v2"
-)
+@dataclass
+class Challenges:
+	Msg: str
+	# Values: List[Challenge]
+	IsLabAssigned: bool
 
-type Challenges struct {
-	Msg           string      `json:"msg"`
-	Values        []Challenge `json:"values"`
-	IsLabAssigned bool        `json:"isLabAssigned"`
-}
+@dataclass
+class Challenge:
+	# ...
+	IsUserCompleted: bool
+	# TeamsCompleted
+	IsChalDisabled: bool
 
-type Challenge struct {
-	Challenge struct {
-		Tag             string `json:"tag"`
-		Name            string `json:"name"`
-		Points          int    `json:"points"`
-		Category        string `json:"category"`
-		TeamDescription string `json:"teamDescription"`
-		StaticChallenge bool   `json:"staticChallenge"`
-	} `json:"challenge"`
-	IsUserCompleted bool `json:"isUserCompleted"`
-	TeamsCompleted  []struct {
-		TeamName    string    `json:"teamName"`
-		CompletedAt time.Time `json:"completedAt"`
-	} `json:"teamsCompleted"`
-	IsChalDisabled bool `json:"isChalDisabled"`
-}
+# done chan interface{}
+# interrupt chan os.Signal
+haaukinsURL = ""
+haaukinsSessionCookie = ""
+filePath = ""
 
-var done chan interface{}
-var interrupt chan os.Signal
-var haaukinsURL string
-var haaukinsSessionCookie string
-var filePath string
+challenges: Challenges = []
 
-var challenges Challenges
+cookieJar = "cookiejar.Jar"
+haaukinsDialer: "websocket.Dialer"
 
-var cookieJar cookiejar.Jar
-var haaukinsDialer websocket.Dialer
+async def init():
+	global haaukinsURL, haaukinsDialer, filePath
+	flag = argparse.ArgumentParser()
+	flag.add_argument("--url", dest="haaukinsURL", default="http://localhost", help="Haaukins url fx: ddc.haaukins.com")
+	flag.add_argument("--session", dest="haaukinsSessionCookie", default="", help="Haaukins session cookie")
+	flag.add_argument("--file", dest="filePath", default="challenges", help="Path to save challenges, default is local subdirectory challenges")
 
-func init() {
-	flag.StringVar(&haaukinsURL, "url", "http://localhost", "Haaukins url fx: ddc.haaukins.com")
-	flag.StringVar(&haaukinsSessionCookie, "session", "", "Haaukins session cookie")
-	flag.StringVar(&filePath, "file", "challenges", "Path to save challenges, default is local subdirectory challenges")
+	args = flag.parse_args()
+	haaukinsURL = args.haaukinsURL
+	filePath = args.filePath  # needed?
+	# done = make(chan interface{})		  //Channel to indicate when the connection is closed
+	# interrupt = make(chan os.Signal, 1)	// Channel to listen for interrupts
+	# signal.Notify(interrupt, os.Interrupt) // Catch OS interrupts
 
-	flag.Parse()
-	done = make(chan interface{})          //Channel to indicate when the connection is closed
-	interrupt = make(chan os.Signal, 1)    // Channel to listen for interrupts
-	signal.Notify(interrupt, os.Interrupt) // Catch OS interrupts
-
-	cookieJar, err := cookiejar.New(nil)
-	if err != nil {
-		panic(err)
+	# cookieJar, err = cookiejar.New(None)
+	# if err != None: {
+	# 	exit(err)
+	# }
+	cookie = {
+		"Name": "session",
+		"Value": args.haaukinsSessionCookie
 	}
-	cookie := &http.Cookie{
-		Name:  "session",
-		Value: haaukinsSessionCookie,
+	urlObj = "https://" + args.haaukinsURL
+	# cookieJar.SetCookies(urlObj, []*http.Cookie{cookie})
+	# haaukinsDialer = websocket.Dialer{
+	# 	Jar: cookieJar,
+	# }
+
+
+async def main():
+	global haaukinsURL
+	socketURL = "wss://" + haaukinsURL + "/challengesFrontend"
+	conn, resp, err = await websockets.connect(socketURL), "TODO", None
+	# conn, resp, err = haaukinsDialer.Dial(socketURL, None)
+	if err == websockets.ProtocolError: {
+		logging.debug("Bad handshake: %d", resp.StatusCode)
 	}
-	urlObj, _ := url.Parse("https://" + haaukinsURL)
-	cookieJar.SetCookies(urlObj, []*http.Cookie{cookie})
-	haaukinsDialer = websocket.Dialer{
-		Jar: cookieJar,
+	if err != None: {
+		exit(err)
 	}
-}
+	# defer conn.Close()
+	await recieveChallenges(conn)
 
-func main() {
+	path = os.path.join(".", filePath)
+	os.makedirs(path, exist_ok=True)  # os.ModePerm
 
-	socketURL := "wss://" + haaukinsURL + "/challengesFrontend"
-	conn, resp, err := haaukinsDialer.Dial(socketURL, nil)
-	if err == websocket.ErrBadHandshake {
-		log.Printf("Bad handshake: %d", resp.StatusCode)
-	}
-	if err != nil {
-		panic(err)
-	}
+	# var wg sync.WaitGroup
+	# wg.Add(len(challenges.Values))
+	logging.debug("Downloading files...")
+	for chal in challenges.Values:
+		handleChallenge(chal, path)
+		downloadFileIfExists(chal, path)
 
-	defer conn.Close()
-	recieveChallenges(conn)
+	#wg.Wait()
+	logging.debug("Done! Files saved to:", path)
 
-	path := filepath.Join(".", filePath)
-	os.MkdirAll(path, os.ModePerm)
 
-	var wg sync.WaitGroup
-	wg.Add(len(challenges.Values))
-	log.Println("Downloading files...")
-	for i := range challenges.Values {
-		go func(chal Challenge) {
-			defer wg.Done()
-			handleChallenge(chal, path)
-			downloadFileIfExists(chal, path)
-		}(challenges.Values[i])
-	}
-	wg.Wait()
-	log.Println("Done! Files saved to:", path)
-}
+def downloadFileIfExists(chal: Challenge, rootPath: str):
+	fileUrl = "xurls.Strict().FindString(chal.Challenge.TeamDescription)"
+	#client = &http.Client{}
 
-func downloadFileIfExists(chal Challenge, rootPath string) {
-	fileUrl := xurls.Strict().FindString(chal.Challenge.TeamDescription)
-	client := &http.Client{}
+	fsPath = os.path.join(rootPath, chal.Challenge.Tag)
+	os.makedirs(fsPath, os.ModePerm)
 
-	fsPath := filepath.Join(rootPath, chal.Challenge.Tag)
-	os.MkdirAll(fsPath, os.ModePerm)
-
-	// Check for false positives
-	if fileUrl != "" && !strings.Contains(fileUrl, "hkn") {
-		req, err := http.NewRequest("GET", fileUrl, nil)
-		if err != nil {
-			panic(err)
+	# Check for false positives
+	if fileUrl != "" and not "hkn" in fileUrl:
+		# req, err = http.NewRequest("GET", fileUrl, None)
+		if err != None: {
+			exit(err)
 		}
-		resp, err := client.Do(req)
-		if err != nil {
-			panic(err)
+		resp, err = client.Do(req)
+		if err != None: {
+			exit(err)
 		}
-		defer resp.Body.Close()
-		filePath := path.Base(req.URL.Path)
-		if filePath == "download" {
+		# defer resp.Body.Close()
+		filePath = path.Base(req.URL.Path)
+		if filePath == "download":
 			filePath = chal.Challenge.Tag
+
+		logging.debug("Downloading file:", filePath)
+		file = os.Create(os.path.join(fsPath, filePath))
+		if err != None: {
+			exit(err)
 		}
-		log.Println("Downloading file:", filePath)
-		file, err := os.Create(filepath.Join(fsPath, filePath))
-		if err != nil {
-			panic(err)
-		}
-		defer file.Close()
+		# defer file.Close()
 		_, err = io.Copy(file, resp.Body)
-		if err != nil {
-			panic(err)
+		if err != None: {
+			exit(err)
 		}
+
+
+def handleChallenge(chal: Challenge, rootPath: str):
+	path = os.path.join(rootPath, chal.Challenge.Tag)
+	os.makedirs(path, exist_ok=True)  # os.ModePerm
+	# 
+	file, err = os.Create(os.path.join(path, "challenge.json"))
+	if err != None: {
+		exit(err)
 	}
-}
+	# defer file.Close()
+	with open(file, 'wt') as enc:
+		json.dump(chal, file, indent=4)
 
-func handleChallenge(chal Challenge, rootPath string) {
-	path := filepath.Join(rootPath, chal.Challenge.Tag)
-	os.MkdirAll(path, os.ModePerm)
-	file, err := os.Create(filepath.Join(path, "challenge.json"))
-	if err != nil {
-		panic(err)
-	}
-	defer file.Close()
-	enc := json.NewEncoder(file)
-	enc.SetIndent("", "    ")
-	enc.Encode(chal)
-}
 
-func recieveChallenges(conn *websocket.Conn) {
-	defer close(done)
-	_, challengesJSON, err := conn.ReadMessage()
+async def recieveChallenges(conn: "websockets.legacy.client.Connect"):
+	global challenges
+	_, challengesJSON, err = "", await conn.recv(), None
 
-	if err != nil {
-		fmt.Println(err)
+	if err != None:
+		print(err)
 		return
-	}
-	json.Unmarshal([]byte(challengesJSON), &challenges)
-}
+
+	challenges = Challenges(**json.loads(challengesJSON))
+
+asyncio.run(init())
+asyncio.run(main())
